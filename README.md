@@ -80,6 +80,52 @@ The application provides an interactive graph visualization of knowledge triplet
 - Pan the graph by dragging
 - Toggle between dark and light modes
 
+## Trading-OS Graph Modes
+
+This clone also supports two local `trading-os` modes for inspecting the local
+Graphiti/Neo4j memory graph without sending trading memory to Zep Cloud.
+
+### Neo4j Live
+
+`Neo4j Live` is the default Trading-OS mode. The browser calls this app's
+Next.js API route, the API route queries local Neo4j server-side, and the route
+transforms the graph rows into the Zep `RawTriplet[]` shape for rendering.
+
+Use `.env.local` if your local Neo4j settings differ from the defaults:
+
+```bash
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=password
+NEO4J_DATABASE=neo4j
+GRAPHITI_GROUP_ID=trading_os_macro_theme
+TRADING_OS_GRAPH_LIMIT=500
+```
+
+Start this viewer and choose `Neo4j Live` with group id
+`trading_os_macro_theme`.
+
+Use `Search / Focus` to load a smaller live subgraph around a ticker, theme,
+relation, or fact text, for example `AI_INFRASTRUCTURE`, `PTON`,
+`HAS_INDICATOR`, or `theme/config`. Leave the field blank to load the full
+group graph. `Limit` caps the number of Neo4j relationships returned.
+
+### JSON Snapshot
+
+`Trading-OS JSON` is the fallback/debug mode. It reads a local triplet snapshot
+exported from `trading-os`.
+
+From `/Users/sz/github/trading-os`:
+
+```bash
+PYTHONPATH=engine/src \
+engine/.venv/bin/python -m engine.cli memory export-zep-triplets \
+  --output /Users/sz/github/zep-graph-visualization/public/trading-os/trading-os-memory.json
+```
+
+Then start this viewer and choose `Trading-OS JSON` with graph id
+`trading-os-memory`.
+
 ## License
 
 [MIT](LICENSE)

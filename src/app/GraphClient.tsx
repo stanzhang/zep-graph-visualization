@@ -2,11 +2,10 @@
 
 import { useState, ChangeEvent, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Share2 } from "lucide-react";
+import { Search, Share2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 
 import {
   Dialog,
@@ -30,92 +29,209 @@ export function GraphClient({ userID: initialUserID }: UserDetailsProps) {
   const [graphDialogOpen, setGraphDialogOpen] = useState(false);
   const graphRef = useRef<GraphRef>(null);
 
-  // New state for user/group switch and ID input
-  const [isGroupMode, setIsGroupMode] = useState(false);
-  const [entityId, setEntityId] = useState(initialUserID || "");
+  const [sourceMode, setSourceMode] = useState<
+    "neo4j" | "local" | "user" | "group"
+  >("neo4j");
+  const [entityId, setEntityId] = useState(
+    initialUserID || "trading_os_macro_theme",
+  );
+  const [focus, setFocus] = useState("");
+  const [graphLimit, setGraphLimit] = useState("500");
+  const [loadedFocus, setLoadedFocus] = useState("");
 
-  const handleLoadGraph = async () => {
+  const buildTripletsUrl = (focusValue: string) => {
+    const params = new URLSearchParams();
+    const trimmedFocus = focusValue.trim();
+    const trimmedLimit = graphLimit.trim();
+
+    if (trimmedFocus) {
+      params.set("focus", trimmedFocus);
+    }
+    if (trimmedLimit) {
+      params.set("limit", trimmedLimit);
+    }
+
+    const query = params.toString();
+    return `/api/graph/${sourceMode}/${encodeURIComponent(entityId)}/triplets${
+      query ? `?${query}` : ""
+    }`;
+  };
+
+  const handleLoadGraph = async (focusOverride?: string) => {
     if (!entityId.trim()) {
       toast.error("Please enter an ID");
       return;
     }
 
+    const focusValue = focusOverride ?? focus;
     setIsLoadingGraph(true);
     try {
-      // Determine the endpoint based on mode
-      const endpointType = isGroupMode ? "group" : "user";
-      const response = await fetch(
-        `/api/graph/${endpointType}/${encodeURIComponent(entityId)}/triplets`
-      );
+      const response = await fetch(buildTripletsUrl(focusValue));
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || `Failed to load ${endpointType} graph`);
+        throw new Error(error.error || `Failed to load ${sourceMode} graph`);
       }
 
       const data = await response.json();
       setTriplets(data.triplets);
+      setLoadedFocus(focusValue.trim());
 
       // Open the dialog when graph data is loaded
       setGraphDialogOpen(true);
     } catch (error) {
       console.error("Error loading graph:", error);
       toast.error(
-        error instanceof Error ? error.message : "Failed to load graph"
+        error instanceof Error ? error.message : "Failed to load graph",
       );
     } finally {
       setIsLoadingGraph(false);
     }
   };
 
+  const handleClearFocus = () => {
+    setFocus("");
+    void handleLoadGraph("");
+  };
+
   return (
     <div className="space-y-6">
       <div className="grid gap-4 py-4">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="mode-switch"
-              checked={isGroupMode}
-              onCheckedChange={setIsGroupMode}
-            />
-            <Label htmlFor="mode-switch">
-              {isGroupMode ? "Group Mode" : "User Mode"}
-            </Label>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleLoadGraph();
+          }}
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant={sourceMode === "neo4j" ? "default" : "outline"}
+                onClick={() => {
+                  setSourceMode("neo4j");
+                  setEntityId("trading_os_macro_theme");
+                }}
+              >
+                Neo4j Live
+              </Button>
+              <Button
+                type="button"
+                variant={sourceMode === "local" ? "default" : "outline"}
+                onClick={() => {
+                  setSourceMode("local");
+                  setEntityId("trading-os-memory");
+                }}
+              >
+                Trading-OS JSON
+              </Button>
+              <Button
+                type="button"
+                variant={sourceMode === "group" ? "default" : "outline"}
+                onClick={() => setSourceMode("group")}
+              >
+                Zep Group
+              </Button>
+              <Button
+                type="button"
+                variant={sourceMode === "user" ? "default" : "outline"}
+                onClick={() => setSourceMode("user")}
+              >
+                Zep User
+              </Button>
+            </div>
+
+            <div className="flex-1 grid gap-2">
+              <Label htmlFor="entity-id">
+                {sourceMode === "neo4j"
+                  ? "Neo4j Group ID"
+                  : sourceMode === "local"
+                    ? "Local Graph ID"
+                    : sourceMode === "group"
+                      ? "Group ID"
+                      : "User ID"}
+              </Label>
+              <Input
+                id="entity-id"
+                placeholder={
+                  sourceMode === "neo4j"
+                    ? "trading_os_macro_theme"
+                    : sourceMode === "local"
+                      ? "trading-os-memory"
+                      : sourceMode === "group"
+                        ? "Enter group ID..."
+                        : "Enter user ID..."
+                }
+                value={entityId}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setEntityId(e.target.value)
+                }
+              />
+            </div>
+
+            <Button
+              type="submit"
+              variant="default"
+              size="lg"
+              disabled={isLoadingGraph}
+              className="mt-2 sm:mt-0 text-lg font-medium"
+            >
+              {isLoadingGraph ? (
+                "Loading..."
+              ) : (
+                <>
+                  <span className="mr-2">
+                    {focus.trim() ? "Focus Graph" : "View Graph"}
+                  </span>
+                  <Share2 size={19} />
+                </>
+              )}
+            </Button>
           </div>
 
-          <div className="flex-1 grid gap-2">
-            <Label htmlFor="entity-id">
-              {isGroupMode ? "Group ID" : "User ID"}
-            </Label>
-            <Input
-              id="entity-id"
-              placeholder={
-                isGroupMode ? "Enter group ID..." : "Enter user ID..."
-              }
-              value={entityId}
-              onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                setEntityId(e.target.value)
-              }
-            />
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_8rem_auto] sm:items-end">
+            <div className="grid gap-2">
+              <Label htmlFor="graph-focus">Search / Focus</Label>
+              <Input
+                id="graph-focus"
+                placeholder="AI_COOLING, PTON, macro, HAS_INDICATOR..."
+                value={focus}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setFocus(e.target.value)
+                }
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="graph-limit">Limit</Label>
+              <Input
+                id="graph-limit"
+                type="number"
+                min="1"
+                max="2000"
+                value={graphLimit}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setGraphLimit(e.target.value)
+                }
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button type="submit" variant="outline" disabled={isLoadingGraph}>
+                <Search size={17} className="mr-2" />
+                Search
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isLoadingGraph || !focus.trim()}
+                onClick={handleClearFocus}
+              >
+                <X size={17} className="mr-2" />
+                Clear
+              </Button>
+            </div>
           </div>
-
-          <Button
-            variant="default"
-            size="lg"
-            disabled={isLoadingGraph}
-            className="mt-2 sm:mt-0 text-lg font-medium"
-            onClick={handleLoadGraph}
-          >
-            {isLoadingGraph ? (
-              "Loading..."
-            ) : (
-              <>
-                <span className="mr-2">View Graph</span>
-                <Share2 size={19} />
-              </>
-            )}
-          </Button>
-        </div>
+        </form>
       </div>
 
       {/* Graph Dialog */}
@@ -123,15 +239,57 @@ export function GraphClient({ userID: initialUserID }: UserDetailsProps) {
         <DialogContent className="max-w-none sm:max-w-none md:max-w-none lg:max-w-none w-[100vw] h-[100vh]">
           <DialogHeader>
             <DialogTitle>
-              {isGroupMode ? "Group" : "User"} Relationship Graph
+              {sourceMode === "local"
+                ? "Trading-OS JSON"
+                : sourceMode === "neo4j"
+                  ? "Trading-OS"
+                  : sourceMode === "group"
+                    ? "Group"
+                    : "User"}{" "}
+              Relationship Graph
             </DialogTitle>
             <DialogDescription>
-              Visualization of {isGroupMode ? "group" : "user"} relationships
-              and connections
+              {triplets.length.toLocaleString()} relationship
+              {triplets.length === 1 ? "" : "s"}
+              {loadedFocus ? ` focused on "${loadedFocus}"` : ""} from{" "}
+              {sourceMode}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="relative flex-1 w-full h-[calc(80vh-8rem)]">
+          <form
+            className="flex flex-col gap-3 sm:flex-row sm:items-end"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleLoadGraph();
+            }}
+          >
+            <div className="grid flex-1 gap-2">
+              <Label htmlFor="dialog-graph-focus">Search / Focus</Label>
+              <Input
+                id="dialog-graph-focus"
+                placeholder="Type an entity, relation, or fact..."
+                value={focus}
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                  setFocus(e.target.value)
+                }
+              />
+            </div>
+            <Button type="submit" variant="outline" disabled={isLoadingGraph}>
+              <Search size={17} className="mr-2" />
+              Search
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isLoadingGraph || !focus.trim()}
+              onClick={handleClearFocus}
+            >
+              <X size={17} className="mr-2" />
+              Clear
+            </Button>
+          </form>
+
+          <div className="relative flex-1 w-full h-[calc(80vh-12rem)]">
             {triplets.length > 0 && (
               <GraphVisualization
                 ref={graphRef}
@@ -140,6 +298,11 @@ export function GraphClient({ userID: initialUserID }: UserDetailsProps) {
                 height={window.innerHeight * 0.75}
                 zoomOnMount={true}
               />
+            )}
+            {triplets.length === 0 && (
+              <div className="flex h-full items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+                No graph relationships matched this query.
+              </div>
             )}
           </div>
 
