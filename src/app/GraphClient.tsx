@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, ChangeEvent, useRef } from "react";
+import { useState, ChangeEvent, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Search, Share2, X } from "lucide-react";
+import { GitBranch, LocateFixed, Search, Share2, Tags, X } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +23,24 @@ interface UserDetailsProps {
   userID?: string;
 }
 
+type LocatorNode = {
+  id: string;
+  name: string;
+  label: string;
+  summary: string;
+  degree: number;
+};
+
+type LocatorRelation = {
+  id: string;
+  relation: string;
+  fact: string;
+  sourceName: string;
+  targetName: string;
+};
+
+const MAX_LOCATOR_ROWS = 40;
+
 export function GraphClient({ userID: initialUserID }: UserDetailsProps) {
   const [isLoadingGraph, setIsLoadingGraph] = useState(false);
   const [triplets, setTriplets] = useState<RawTriplet[]>([]);
@@ -38,6 +56,93 @@ export function GraphClient({ userID: initialUserID }: UserDetailsProps) {
   const [focus, setFocus] = useState("");
   const [graphLimit, setGraphLimit] = useState("500");
   const [loadedFocus, setLoadedFocus] = useState("");
+
+  const graphIndex = useMemo(() => {
+    const nodes = new Map<string, LocatorNode>();
+    const labelCounts = new Map<string, number>();
+    const relations: LocatorRelation[] = [];
+
+    for (const triplet of triplets) {
+      for (const node of [triplet.sourceNode, triplet.targetNode]) {
+        const label = primaryLabel(node.labels);
+        const existing = nodes.get(node.uuid);
+        if (existing) {
+          existing.degree += 1;
+        } else {
+          nodes.set(node.uuid, {
+            id: node.uuid,
+            name: node.name || node.uuid,
+            label,
+            summary: node.summary || "",
+            degree: 1,
+          });
+          labelCounts.set(label, (labelCounts.get(label) || 0) + 1);
+        }
+      }
+
+      if (triplet.edge.type !== "_isolated_node_") {
+        relations.push({
+          id: triplet.edge.uuid,
+          relation: triplet.edge.name || triplet.edge.type || "RELATION",
+          fact: triplet.edge.fact || "",
+          sourceName: triplet.sourceNode.name || triplet.sourceNode.uuid,
+          targetName: triplet.targetNode.name || triplet.targetNode.uuid,
+        });
+      }
+    }
+
+    const sortedNodes = Array.from(nodes.values()).sort((a, b) => {
+      if (b.degree !== a.degree) {
+        return b.degree - a.degree;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    const sortedLabels = Array.from(labelCounts.entries()).sort((a, b) => {
+      if (b[1] !== a[1]) {
+        return b[1] - a[1];
+      }
+      return a[0].localeCompare(b[0]);
+    });
+
+    return {
+      labels: sortedLabels,
+      nodes: sortedNodes,
+      relations,
+      nodeCount: sortedNodes.length,
+      relationCount: relations.length,
+    };
+  }, [triplets]);
+
+  const locatorTerm = focus.trim().toLowerCase();
+  const locatorNodes = useMemo(() => {
+    const rows = locatorTerm
+      ? graphIndex.nodes.filter((node) =>
+          matchesText(locatorTerm, [
+            node.name,
+            node.label,
+            node.summary,
+            node.id,
+          ]),
+        )
+      : graphIndex.nodes;
+    return rows.slice(0, MAX_LOCATOR_ROWS);
+  }, [graphIndex.nodes, locatorTerm]);
+
+  const locatorRelations = useMemo(() => {
+    const rows = locatorTerm
+      ? graphIndex.relations.filter((relation) =>
+          matchesText(locatorTerm, [
+            relation.sourceName,
+            relation.relation,
+            relation.targetName,
+            relation.fact,
+            relation.id,
+          ]),
+        )
+      : graphIndex.relations;
+    return rows.slice(0, MAX_LOCATOR_ROWS);
+  }, [graphIndex.relations, locatorTerm]);
 
   const buildTripletsUrl = (focusValue: string) => {
     const params = new URLSearchParams();
@@ -92,6 +197,14 @@ export function GraphClient({ userID: initialUserID }: UserDetailsProps) {
   const handleClearFocus = () => {
     setFocus("");
     void handleLoadGraph("");
+  };
+
+  const handleLocateNode = (nodeId: string) => {
+    graphRef.current?.zoomToNodeById(nodeId);
+  };
+
+  const handleLocateRelation = (relationId: string) => {
+    graphRef.current?.zoomToLinkById(relationId);
   };
 
   return (
@@ -236,7 +349,7 @@ export function GraphClient({ userID: initialUserID }: UserDetailsProps) {
 
       {/* Graph Dialog */}
       <Dialog open={graphDialogOpen} onOpenChange={setGraphDialogOpen}>
-        <DialogContent className="max-w-none sm:max-w-none md:max-w-none lg:max-w-none w-[100vw] h-[100vh]">
+        <DialogContent className="flex h-[100vh] w-[100vw] max-w-none flex-col overflow-hidden sm:max-w-none md:max-w-none lg:max-w-none">
           <DialogHeader>
             <DialogTitle>
               {sourceMode === "local"
@@ -251,6 +364,9 @@ export function GraphClient({ userID: initialUserID }: UserDetailsProps) {
             <DialogDescription>
               {triplets.length.toLocaleString()} relationship
               {triplets.length === 1 ? "" : "s"}
+              {graphIndex.nodeCount
+                ? ` across ${graphIndex.nodeCount.toLocaleString()} nodes`
+                : ""}
               {loadedFocus ? ` focused on "${loadedFocus}"` : ""} from{" "}
               {sourceMode}
             </DialogDescription>
@@ -289,21 +405,162 @@ export function GraphClient({ userID: initialUserID }: UserDetailsProps) {
             </Button>
           </form>
 
-          <div className="relative flex-1 w-full h-[calc(80vh-12rem)]">
-            {triplets.length > 0 && (
-              <GraphVisualization
-                ref={graphRef}
-                triplets={triplets}
-                width={window.innerWidth}
-                height={window.innerHeight * 0.75}
-                zoomOnMount={true}
-              />
-            )}
-            {triplets.length === 0 && (
-              <div className="flex h-full items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-                No graph relationships matched this query.
+          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
+            <aside className="flex min-h-0 flex-col overflow-hidden rounded-md border bg-background">
+              <div className="border-b p-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-md bg-muted px-3 py-2">
+                    <div className="text-xs text-muted-foreground">Nodes</div>
+                    <div className="text-lg font-semibold">
+                      {graphIndex.nodeCount.toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="rounded-md bg-muted px-3 py-2">
+                    <div className="text-xs text-muted-foreground">
+                      Relations
+                    </div>
+                    <div className="text-lg font-semibold">
+                      {graphIndex.relationCount.toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+
+                {graphIndex.labels.length > 0 && (
+                  <div className="mt-3">
+                    <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <Tags size={14} />
+                      Entity Types
+                    </div>
+                    <div className="flex max-h-20 flex-wrap gap-1 overflow-y-auto pr-1">
+                      {graphIndex.labels.slice(0, 12).map(([label, count]) => (
+                        <button
+                          key={label}
+                          type="button"
+                          className="rounded-full border px-2 py-1 text-xs hover:bg-muted"
+                          onClick={() => setFocus(label)}
+                        >
+                          {label} {count}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
+
+              <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                <section>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">Locate Nodes</h3>
+                    <span className="text-xs text-muted-foreground">
+                      {locatorNodes.length.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {locatorNodes.map((node) => (
+                      <button
+                        key={node.id}
+                        type="button"
+                        className="w-full rounded-md border p-2 text-left transition-colors hover:bg-muted"
+                        onClick={() => handleLocateNode(node.id)}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">
+                              {node.name}
+                            </div>
+                            <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                              <span className="rounded bg-muted px-1.5 py-0.5">
+                                {node.label}
+                              </span>
+                              <span>{node.degree} links</span>
+                            </div>
+                          </div>
+                          <LocateFixed
+                            size={16}
+                            className="mt-0.5 shrink-0 text-muted-foreground"
+                          />
+                        </div>
+                        {node.summary && (
+                          <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                            {node.summary}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                    {locatorNodes.length === 0 && (
+                      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                        No loaded nodes match this focus.
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                <section className="mt-5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold">Trace Relations</h3>
+                    <span className="text-xs text-muted-foreground">
+                      {locatorRelations.length.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {locatorRelations.map((relation) => (
+                      <button
+                        key={relation.id}
+                        type="button"
+                        className="w-full rounded-md border p-2 text-left transition-colors hover:bg-muted"
+                        onClick={() => handleLocateRelation(relation.id)}
+                      >
+                        <div className="flex items-start gap-2">
+                          <GitBranch
+                            size={15}
+                            className="mt-0.5 shrink-0 text-muted-foreground"
+                          />
+                          <div className="min-w-0">
+                            <div className="text-xs text-muted-foreground">
+                              {relation.sourceName}
+                            </div>
+                            <div className="truncate text-sm font-medium">
+                              {relation.relation}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {relation.targetName}
+                            </div>
+                          </div>
+                        </div>
+                        {relation.fact && (
+                          <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                            {relation.fact}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                    {locatorRelations.length === 0 && (
+                      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                        No loaded relations match this focus.
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </div>
+            </aside>
+
+            <div className="relative min-h-0 w-full">
+              {triplets.length > 0 && (
+                <GraphVisualization
+                  ref={graphRef}
+                  triplets={triplets}
+                  width={window.innerWidth}
+                  height={window.innerHeight * 0.68}
+                  zoomOnMount={true}
+                  className="h-[calc(100vh-15rem)] overflow-hidden rounded-md border border-border"
+                />
+              )}
+              {triplets.length === 0 && (
+                <div className="flex h-full min-h-[28rem] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
+                  No graph relationships matched this query.
+                </div>
+              )}
+            </div>
           </div>
 
           <DialogFooter>
@@ -315,4 +572,12 @@ export function GraphClient({ userID: initialUserID }: UserDetailsProps) {
       </Dialog>
     </div>
   );
+}
+
+function primaryLabel(labels?: string[]): string {
+  return labels?.find((label) => label !== "Entity") || "Entity";
+}
+
+function matchesText(term: string, values: Array<string | undefined>): boolean {
+  return values.filter(Boolean).join(" ").toLowerCase().includes(term);
 }

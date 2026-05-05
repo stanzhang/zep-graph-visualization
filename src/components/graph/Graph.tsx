@@ -28,9 +28,9 @@ interface GraphProps {
   labelColorMap?: Map<string, number>;
 }
 
-// Add ref type for zoomToLinkById
 export interface GraphRef {
   zoomToLinkById: (linkId: string) => void;
+  zoomToNodeById: (nodeId: string) => void;
 }
 
 // eslint-disable-next-line react/display-name
@@ -46,7 +46,7 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
       onBlur,
       labelColorMap: externalLabelColorMap,
     },
-    ref
+    ref,
   ) => {
     const svgRef = useRef<SVGSVGElement>(null);
     const { resolvedTheme: themeMode } = useTheme();
@@ -57,12 +57,15 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
     const handleLinkClickRef = useRef<
       ((event: any, d: any, relation: IdValue) => void) | null
     >(null);
+    const handleNodeClickRef = useRef<((event: any, d: any) => void) | null>(
+      null,
+    );
     const simulationRef = useRef<d3.Simulation<
       d3.SimulationNodeDatum,
       undefined
     > | null>(null);
     const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(
-      null
+      null,
     );
     const isInitializedRef = useRef(false);
 
@@ -87,7 +90,7 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
 
           if (d?.relationData) {
             const relation = d.relationData.find(
-              (r: IdValue) => r.id === linkId
+              (r: IdValue) => r.id === linkId,
             );
             if (relation) {
               found = true;
@@ -106,6 +109,26 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
         if (!found) {
           console.warn(`Link with id ${linkId} not found`);
         }
+      },
+      zoomToNodeById: (nodeId: string) => {
+        if (!svgRef.current || !handleNodeClickRef.current) {
+          return;
+        }
+
+        const svgElement = d3.select(svgRef.current);
+        const matchingCircle = svgElement
+          .selectAll<SVGCircleElement, any>("circle")
+          .filter(function () {
+            return d3.select(this).attr("data-id") === nodeId;
+          });
+        const datum = matchingCircle.datum();
+
+        if (!datum) {
+          console.warn(`Node with id ${nodeId} not found`);
+          return;
+        }
+
+        handleNodeClickRef.current({ stopPropagation: () => {} }, datum);
       },
     });
 
@@ -140,7 +163,7 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
           text: themeMode === "dark" ? colors.slate[100] : colors.slate[900],
         },
       }),
-      [themeMode]
+      [themeMode],
     );
 
     // Extract all unique labels from triplets
@@ -194,19 +217,19 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
         return getNodeColorByLabel(
           primaryLabel,
           themeMode === "dark",
-          labelColorMap
+          labelColorMap,
         );
       },
-      [labelColorMap, nodeDataMap, themeMode]
+      [labelColorMap, nodeDataMap, themeMode],
     );
 
     // Process graph data
     const { nodes, links } = useMemo(() => {
       const nodes = Array.from(
-        new Set(triplets.flatMap((t) => [t.source.id, t.target.id]))
+        new Set(triplets.flatMap((t) => [t.source.id, t.target.id])),
       ).map((id) => {
         const nodeData = triplets.find(
-          (t) => t.source.id === id || t.target.id === id
+          (t) => t.source.id === id || t.target.id === id,
         );
         const value = nodeData
           ? nodeData.source.id === id
@@ -255,7 +278,7 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
             relationData: IdValue[];
             curveStrength: number;
           }
-        >
+        >,
       );
 
       return {
@@ -279,7 +302,7 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
 
       // Drag handler function
       const drag = (
-        simulation: d3.Simulation<d3.SimulationNodeDatum, undefined>
+        simulation: d3.Simulation<d3.SimulationNodeDatum, undefined>,
       ) => {
         const originalSettings = {
           velocityDecay: 0.4,
@@ -377,7 +400,7 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
             .forceLink(links)
             .id((d: any) => d.id)
             .distance(200)
-            .strength(0.2)
+            .strength(0.2),
         )
         .force(
           "charge",
@@ -390,12 +413,12 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
             })
             .distanceMin(20)
             .distanceMax(500)
-            .theta(0.8)
+            .theta(0.8),
         )
         .force("center", d3.forceCenter(width / 2, height / 2).strength(0.05))
         .force(
           "collide",
-          d3.forceCollide().radius(50).strength(0.3).iterations(5)
+          d3.forceCollide().radius(50).strength(0.3).iterations(5),
         )
         // Add a special gravity force for isolated nodes to pull them toward the center
         .force(
@@ -404,9 +427,9 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
             .forceRadial(
               100, // distance from center
               width / 2, // center x
-              height / 2 // center y
+              height / 2, // center y
             )
-            .strength((d: any) => (isolatedNodeIds.has(d.id) ? 0.15 : 0.01))
+            .strength((d: any) => (isolatedNodeIds.has(d.id) ? 0.15 : 0.01)),
         )
         .velocityDecay(0.4)
         .alphaDecay(0.05)
@@ -573,11 +596,11 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
             .attr("cursor", "pointer")
             .attr(
               "data-source",
-              typeof d.source === "object" ? d.source.id : d.source
+              typeof d.source === "object" ? d.source.id : d.source,
             )
             .attr(
               "data-target",
-              typeof d.target === "object" ? d.target.id : d.target
+              typeof d.target === "object" ? d.target.id : d.target,
             )
             .on("click", (event) => {
               if (handleLinkClickRef.current) {
@@ -753,6 +776,8 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
         }
       }
 
+      handleNodeClickRef.current = handleNodeClick;
+
       // Attach click handler to nodes
       node.on("click", handleNodeClick);
 
@@ -882,7 +907,7 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
                     const angle =
                       (Math.atan2(
                         d.target.y - d.source.y,
-                        d.target.x - d.source.x
+                        d.target.x - d.source.x,
                       ) *
                         180) /
                       Math.PI;
@@ -891,7 +916,7 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
 
                     labelGroup.attr(
                       "transform",
-                      `translate(${midPoint.x}, ${midPoint.y}) rotate(${rotationAngle})`
+                      `translate(${midPoint.x}, ${midPoint.y}) rotate(${rotationAngle})`,
                     );
 
                     rect
@@ -946,7 +971,7 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
               const transform = d3.zoomIdentity
                 .translate(
                   fullWidth / 2 - midX * scale,
-                  fullHeight / 2 - midY * scale
+                  fullHeight / 2 - midY * scale,
                 )
                 .scale(scale);
 
@@ -1047,5 +1072,5 @@ export const Graph = forwardRef<GraphRef, GraphProps>(
         }}
       />
     );
-  }
+  },
 );

@@ -35,7 +35,7 @@ export const GraphVisualization = forwardRef<GraphRef, GraphVisualizationProps>(
       zoomOnMount = true,
       className = "border border-border rounded-md h-[85vh] overflow-hidden relative",
     },
-    ref
+    ref,
   ) => {
     const { resolvedTheme } = useTheme();
     const isDarkMode = resolvedTheme === "dark";
@@ -50,6 +50,16 @@ export const GraphVisualization = forwardRef<GraphRef, GraphVisualizationProps>(
 
     // Convert raw triplets to graph triplets
     const graphTriplets = useMemo(() => toGraphTriplets(triplets), [triplets]);
+    const graphKey = useMemo(
+      () =>
+        triplets
+          .map(
+            (triplet) =>
+              `${triplet.sourceNode.uuid}:${triplet.edge.uuid}:${triplet.targetNode.uuid}`,
+          )
+          .join("|"),
+      [triplets],
+    );
 
     // Extract all unique labels from triplets
     const allLabels = useMemo(() => {
@@ -81,7 +91,7 @@ export const GraphVisualization = forwardRef<GraphRef, GraphVisualizationProps>(
     const handleNodeClick = (nodeId: string) => {
       // Find the triplet that contains this node
       const triplet = triplets.find(
-        (t) => t.sourceNode.uuid === nodeId || t.targetNode.uuid === nodeId
+        (t) => t.sourceNode.uuid === nodeId || t.targetNode.uuid === nodeId,
       );
 
       if (!triplet) return;
@@ -145,7 +155,7 @@ export const GraphVisualization = forwardRef<GraphRef, GraphVisualizationProps>(
                           backgroundColor: getNodeColor(
                             label,
                             isDarkMode,
-                            sharedLabelColorMap
+                            sharedLabelColorMap,
                           ),
                         }}
                       />
@@ -160,6 +170,7 @@ export const GraphVisualization = forwardRef<GraphRef, GraphVisualizationProps>(
 
         {triplets.length > 0 ? (
           <Graph
+            key={graphKey}
             ref={ref}
             triplets={graphTriplets}
             width={width}
@@ -185,5 +196,5 @@ export const GraphVisualization = forwardRef<GraphRef, GraphVisualizationProps>(
         />
       </div>
     );
-  }
+  },
 );
